@@ -99,7 +99,7 @@
     servidor: O,
     version: null,                                     // the version of the app being shown
     cambiar(o) { s("o", limpio(o)); location.reload(); },
-    async actualizar() { abrir(await traer()); },     // the server has a newer one
+    actualizar() { location.reload(); },              // the server has a newer one: start clean with it
     fuera() { location.reload(); },                   // the app lost its server: back to the neutral page
   };
 
