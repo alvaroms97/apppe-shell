@@ -132,7 +132,9 @@
   if (!O()) return pedir();
   if (guardada) {
     abrir(guardada);                                   // at once, from the copy
-    traer().then(a => { if (a.v !== guardada.v) s("a", a); }).catch(() => {});   // fresher next time
+    // A newer version: kept for next time, and shown now if it came while the app was opening.
+    const t0 = Date.now();
+    traer().then(a => { if (a.v !== guardada.v) { s("a", a); if (Date.now() - t0 < 3000) abrir(a); } }).catch(() => {});
   } else {
     traer().then(a => { s("a", a); abrir(a); }).catch(() => pedir("No responde. Comprueba la dirección y que estás en la misma red."));
   }
