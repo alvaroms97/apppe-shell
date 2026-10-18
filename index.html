@@ -18,16 +18,23 @@
 </head>
 <body>
 <div id="p" hidden>
-  <h1>Conectar</h1>
-  <input id="d" inputmode="url" autocapitalize="none" autocorrect="off" placeholder="192.168.0.10:8000">
-  <button id="b">Conectar</button>
+  <h1 id="t">Conectar</h1>
+  <div id="r" hidden>
+    <small>No se encuentra el servidor. Se vuelve a intentar solo.</small>
+    <button id="x">Reintentar</button> <button id="c">Cambiar dirección</button>
+  </div>
+  <div id="f">
+    <input id="d" inputmode="url" autocapitalize="none" autocorrect="off" placeholder="192.168.0.10:8000">
+    <button id="b">Conectar</button>
+    <small>La dirección del servidor de tu red local, con su puerto.</small>
+  </div>
   <div id="e"></div>
-  <small>La dirección del servidor de tu red local, con su puerto.</small>
 </div>
 <script>
 // A generic installable wrapper for an app served from a computer on the local network. It
-// keeps the server's address and the app it last got from it, so it opens with no connection;
-// every request of the app goes to that server, with the browser's local network permission.
+// keeps only the server's address: the app itself comes from the server every time, so with no
+// server nothing of it is shown, just a neutral page that keeps trying. Every request of the app
+// goes to that server, with the browser's local network permission.
 (() => {
   const P = "w:", L = localStorage;
   const g = k => { try { return JSON.parse(L.getItem(P + k)); } catch (e) { return null; } };
@@ -92,7 +99,8 @@
     servidor: O,
     version: null,                                     // the version of the app being shown
     cambiar(o) { s("o", limpio(o)); location.reload(); },
-    async actualizar() { const a = await traer(); s("a", a); abrir(a); },   // the server has a newer one
+    async actualizar() { abrir(await traer()); },     // the server has a newer one
+    fuera() { location.reload(); },                   // the app lost its server: back to the neutral page
   };
 
   // The app as it comes from the server: its manifest (so it installs with its own name and
@@ -109,38 +117,55 @@
     document.open(); document.write(h); document.close();
   }
 
+  // A server that does not answer in a few seconds (away from its network a local name can hang).
   async function traer() {
-    const r = await F(O() + "/shell/app.json", Object.assign({ cache: "no-store" }, LOCAL));
-    if (!r.ok) throw new Error(r.status);
-    return r.json();
+    const k = new AbortController(), t = setTimeout(() => k.abort(), 5000);
+    try {
+      const r = await F(O() + "/shell/app.json", Object.assign({ cache: "no-store", signal: k.signal }, LOCAL));
+      if (!r.ok) throw new Error(r.status);
+      return await r.json();
+    } finally { clearTimeout(t); }
   }
 
+  const $ = id => document.getElementById(id);
+  let probando = false;
+  async function probar() {
+    if (probando) return;
+    probando = true; $("e").textContent = "Conectando…";
+    try { abrir(await traer()); }
+    catch (e) { $("e").textContent = ""; probando = false; }
+  }
+
+  // The address form, also to change it.
   function pedir(error) {
-    document.getElementById("p").hidden = false;
-    document.getElementById("d").value = (O() || "").replace(/^https?:\/\//, "");
-    document.getElementById("e").textContent = error || "";
-    document.getElementById("b").onclick = async () => {
-      let d = limpio(document.getElementById("d").value);
+    $("p").hidden = false; $("r").hidden = true; $("f").hidden = false; $("t").textContent = "Conectar";
+    $("d").value = (O() || "").replace(/^https?:\/\//, "");
+    $("e").textContent = error || "";
+    $("b").onclick = async () => {
+      let d = limpio($("d").value);
       if (!d) return;
       if (!/^https?:\/\//.test(d)) d = "http://" + d;
       s("o", d);
-      document.getElementById("e").textContent = "Conectando…";
-      try { const a = await traer(); s("a", a); abrir(a); }
-      catch (e) { document.getElementById("e").textContent = "No responde. Comprueba la dirección y que estás en la misma red."; }
+      await probar();
+      if (!probando) $("e").textContent = "No responde. Comprueba la dirección y que estás en la misma red.";
     };
   }
 
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
-  const guardada = g("a");
-  if (!O()) return pedir();
-  if (guardada) {
-    abrir(guardada);                                   // at once, from the copy
-    // A newer version: kept for next time, and shown now if it came while the app was opening.
-    const t0 = Date.now();
-    traer().then(a => { if (a.v !== guardada.v) { s("a", a); if (Date.now() - t0 < 3000) abrir(a); } }).catch(() => {});
-  } else {
-    traer().then(a => { s("a", a); abrir(a); }).catch(() => pedir("No responde. Comprueba la dirección y que estás en la misma red."));
+  // No server: a neutral page, trying again every few seconds and whenever the device is back.
+  function esperar() {
+    $("p").hidden = false; $("r").hidden = false; $("f").hidden = true; $("t").textContent = "Sin conexión";
+    $("x").onclick = probar;
+    $("c").onclick = () => pedir();
+    setInterval(() => { if ($("f").hidden) probar(); }, 5000);
+    addEventListener("online", probar);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) probar(); });
   }
+
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+  try { L.removeItem(P + "a"); } catch (e) {}          // older versions kept a copy of the app here
+  if (!O()) return pedir();
+  $("p").hidden = false; $("t").textContent = "Conectando…"; $("r").hidden = $("f").hidden = true;
+  traer().then(abrir).catch(esperar);
 })();
 </script>
 </body>
