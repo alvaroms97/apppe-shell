@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>App</title>
+<style>
+  html, body { margin: 0; height: 100%; font: 16px system-ui, sans-serif; background: #f3f3f3; color: #222; }
+  #p { max-width: 420px; margin: 0 auto; padding: 22vh 20px 20px; }
+  #p h1 { font-size: 18px; margin: 0 0 12px; }
+  #p input { width: 100%; box-sizing: border-box; font: inherit; padding: 10px; border: 1px solid #999; border-radius: 6px; }
+  #p button { margin-top: 10px; font: inherit; padding: 10px 16px; border: 1px solid #777; border-radius: 6px; background: #fff; }
+  #p small { display: block; color: #666; margin-top: 10px; }
+  #e { color: #b00; margin-top: 8px; min-height: 1.2em; }
+</style>
+</head>
+<body>
+<div id="p" hidden>
+  <h1>Conectar</h1>
+  <input id="d" inputmode="url" autocapitalize="none" autocorrect="off" placeholder="192.168.0.10:8000">
+  <button id="b">Conectar</button>
+  <div id="e"></div>
+  <small>La dirección del servidor de tu red local, con su puerto.</small>
+</div>
+<script>
+// A generic installable wrapper for an app served from a computer on the local network. It
+// keeps the server's address and the app it last got from it, so it opens with no connection;
+// every request of the app goes to that server, with the browser's local network permission.
+(() => {
+  const P = "w:", L = localStorage;
+  const g = k => { try { return JSON.parse(L.getItem(P + k)); } catch (e) { return null; } };
+  const s = (k, v) => { try { L.setItem(P + k, JSON.stringify(v)); } catch (e) {} };
+  const q = new URLSearchParams(location.hash.slice(1));
+  const limpio = o => String(o || "").trim().replace(/\/+$/, "");
+  if (q.get("s")) { s("o", limpio(q.get("s"))); history.replaceState(null, "", location.pathname + location.search); }
+  const O = () => g("o");
+  const F = window.fetch.bind(window);
+  const abs = u => (typeof u === "string" && u[0] === "/" && O()) ? O() + u : u;
+  const LOCAL = { targetAddressSpace: "local" };
+
+  // Requests with a root path go to the server.
+  window.fetch = (u, o) => F(abs(u), Object.assign({}, LOCAL, o || {}));
+
+  // Server-sent events over fetch (the local network permission covers fetch).
+  class Ev {
+    constructor(u) { this.l = {}; this.readyState = 0; this.u = abs(u); this.k = new AbortController(); this.go(); }
+    addEventListener(t, f) { (this.l[t] = this.l[t] || []).push(f); }
+    removeEventListener(t, f) { this.l[t] = (this.l[t] || []).filter(x => x !== f); }
+    close() { this.readyState = 2; this.k.abort(); }
+    emit(t, d) {
+      const e = { type: t, data: d };
+      if (t === "open" && this.onopen) this.onopen(e);
+      if (t === "error" && this.onerror) this.onerror(e);
+      if (t === "message" && this.onmessage) this.onmessage(e);
+      (this.l[t] || []).forEach(f => f(e));
+    }
+    async go() {
+      try {
+        const r = await F(this.u, Object.assign({ signal: this.k.signal, headers: { Accept: "text/event-stream" } }, LOCAL));
+        if (!r.ok) throw 0;
+        this.readyState = 1; this.emit("open");
+        const rd = r.body.getReader(), dc = new TextDecoder();
+        let b = "";
+        for (;;) {
+          const { value, done } = await rd.read();
+          if (done) break;
+          b += dc.decode(value, { stream: true }).replace(/\r/g, "");
+          let i;
+          while ((i = b.indexOf("\n\n")) >= 0) {
+            const blq = b.slice(0, i); b = b.slice(i + 2);
+            let t = "message"; const d = [];
+            for (const x of blq.split("\n")) {
+              if (x.startsWith("event:")) t = x.slice(6).trim();
+              else if (x.startsWith("data:")) d.push(x.slice(5).replace(/^ /, ""));
+            }
+            if (d.length) this.emit(t, d.join("\n"));
+          }
+        }
+      } catch (e) {}
+      if (this.readyState !== 2) {
+        this.readyState = 0; this.emit("error");
+        setTimeout(() => { if (this.readyState !== 2) this.go(); }, 3000);
+      }
+    }
+  }
+  window.EventSource = Ev;
+
+  // What the app may ask of the wrapper.
+  window.W = {
+    servidor: O,
+    cambiar(o) { s("o", limpio(o)); location.reload(); },
+  };
+
+  // The app as it comes from the server: its manifest (so it installs with its own name and
+  // icon), its resources inlined, and its page.
+  function abrir(a) {
+    const base = new URL("./", location.href).href;
+    const m = { id: base + "?a=" + a.id, name: a.nombre, short_name: a.corto, start_url: base, scope: base,
+                display: "standalone", background_color: a.fondo, theme_color: a.tema, icons: a.iconos };
+    const man = "data:application/manifest+json," + encodeURIComponent(JSON.stringify(m));
+    let h = a.html;
+    for (const [ruta, datos] of Object.entries(a.recursos || {})) h = h.split('"' + ruta + '"').join('"' + datos + '"');
+    h = h.replace(/<link rel="manifest"[^>]*>/, '<link rel="manifest" href="' + man + '">');
+    document.open(); document.write(h); document.close();
+  }
+
+  async function traer() {
+    const r = await F(O() + "/shell/app.json", Object.assign({ cache: "no-store" }, LOCAL));
+    if (!r.ok) throw new Error(r.status);
+    return r.json();
+  }
+
+  function pedir(error) {
+    document.getElementById("p").hidden = false;
+    document.getElementById("d").value = (O() || "").replace(/^https?:\/\//, "");
+    document.getElementById("e").textContent = error || "";
+    document.getElementById("b").onclick = async () => {
+      let d = limpio(document.getElementById("d").value);
+      if (!d) return;
+      if (!/^https?:\/\//.test(d)) d = "http://" + d;
+      s("o", d);
+      document.getElementById("e").textContent = "Conectando…";
+      try { const a = await traer(); s("a", a); abrir(a); }
+      catch (e) { document.getElementById("e").textContent = "No responde. Comprueba la dirección y que estás en la misma red."; }
+    };
+  }
+
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+  const guardada = g("a");
+  if (!O()) return pedir();
+  if (guardada) {
+    abrir(guardada);                                   // at once, from the copy
+    traer().then(a => { if (a.v !== guardada.v) s("a", a); }).catch(() => {});   // fresher next time
+  } else {
+    traer().then(a => { s("a", a); abrir(a); }).catch(() => pedir("No responde. Comprueba la dirección y que estás en la misma red."));
+  }
+})();
+</script>
+</body>
+</html>
