@@ -90,12 +90,15 @@
   // What the app may ask of the wrapper.
   window.W = {
     servidor: O,
+    version: null,                                     // the version of the app being shown
     cambiar(o) { s("o", limpio(o)); location.reload(); },
+    async actualizar() { const a = await traer(); s("a", a); abrir(a); },   // the server has a newer one
   };
 
   // The app as it comes from the server: its manifest (so it installs with its own name and
   // icon), its resources inlined, and its page.
   function abrir(a) {
+    W.version = a.v;
     const base = new URL("./", location.href).href;
     const m = { id: base + "?a=" + a.id, name: a.nombre, short_name: a.corto, start_url: base, scope: base,
                 display: "standalone", background_color: a.fondo, theme_color: a.tema, icons: a.iconos };
