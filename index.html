@@ -101,6 +101,9 @@
     cambiar(o) { s("o", limpio(o)); location.reload(); },
     actualizar() { location.reload(); },              // the server has a newer one: start clean with it
     fuera() { location.reload(); },                   // the app lost its server: back to the neutral page
+    // The server may have a version for wide screens and one for narrow ones and picks it by the
+    // window's width; the person can choose one for this device (null goes back to the width).
+    vista(v) { s("vista", v || null); location.reload(); },
   };
 
   // The app as it comes from the server: its manifest (so it installs with its own name and
@@ -113,7 +116,8 @@
     const man = "data:application/manifest+json," + encodeURIComponent(JSON.stringify(m));
     let h = a.html;
     for (const [ruta, datos] of Object.entries(a.recursos || {})) h = h.split('"' + ruta + '"').join('"' + datos + '"');
-    h = h.replace(/<link rel="manifest"[^>]*>/, '<link rel="manifest" href="' + man + '">');
+    const enlace = '<link rel="manifest" href="' + man + '">';
+    h = /<link rel="manifest"[^>]*>/.test(h) ? h.replace(/<link rel="manifest"[^>]*>/, enlace) : h.replace(/<head>/i, "<head>" + enlace);
     document.open(); document.write(h); document.close();
   }
 
@@ -121,7 +125,8 @@
   async function traer() {
     const k = new AbortController(), t = setTimeout(() => k.abort(), 5000);
     try {
-      const r = await F(O() + "/shell/app.json", Object.assign({ cache: "no-store", signal: k.signal }, LOCAL));
+      const u = O() + "/shell/app.json?ancho=" + innerWidth + (g("vista") ? "&vista=" + encodeURIComponent(g("vista")) : "");
+      const r = await F(u, Object.assign({ cache: "no-store", signal: k.signal }, LOCAL));
       if (!r.ok) throw new Error(r.status);
       return await r.json();
     } finally { clearTimeout(t); }
